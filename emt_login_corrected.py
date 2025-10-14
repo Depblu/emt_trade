@@ -14,6 +14,7 @@ from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5
 from PIL import Image
 from io import BytesIO
+import getpass
 
 class EMTradeEncrypt:
     """东方财富证券加密类 - 已验证与JavaScript版本等效"""
@@ -309,7 +310,7 @@ def main():
     
     # 用户输入
     account = input("请输入资金账号（12位）: ").strip()
-    password = input("请输入交易密码: ").strip()
+    password = getpass.getpass("请输入交易密码: ").strip()
     
     # 验证输入
     if not account or not password:
