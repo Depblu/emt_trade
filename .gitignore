@@ -1,1 +1,3 @@
-emt_api_python*/
+venv/
+*.pyc
+__pycache__/
