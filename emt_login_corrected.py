@@ -15,6 +15,14 @@ from Crypto.Cipher import PKCS1_v1_5
 from PIL import Image
 from io import BytesIO
 import getpass
+import ddddocr
+import os
+import time
+
+#解决 `module 'PIL.Image' has no attribute 'ANTIALIAS'` 问题
+if not hasattr(Image, 'ANTIALIAS'):
+    setattr(Image, 'ANTIALIAS', Image.LANCZOS)
+
 
 class EMTradeEncrypt:
     """东方财富证券加密类 - 已验证与JavaScript版本等效"""
@@ -47,6 +55,7 @@ class EMTLogin:
         self.session = requests.Session()
         self.encrypt = EMTradeEncrypt()
         self.base_url = "https://jywg.18.cn"
+        self.captcha_path = "captcha.png"
         
         # 模拟浏览器请求头（基于HAR文件）
         self.session.headers.update({
@@ -68,7 +77,20 @@ class EMTLogin:
         except Exception as e:
             print(f"会话初始化失败: {e}")
     
-    def get_captcha(self, save_path="captcha.png"):
+    def recognize_captcha(self):
+        """使用 ddddocr 识别验证码"""
+        try:
+            ocr = ddddocr.DdddOcr()
+            with open(self.captcha_path, 'rb') as f:
+                img_bytes = f.read()
+            res = ocr.classification(img_bytes)
+            print(f"验证码识别结果: {res}")
+            return res
+        except Exception as e:
+            print(f"验证码识别异常: {e}")
+            return ""
+    
+    def get_captcha(self):
         """获取验证码图片"""
         try:
             # 使用JavaScript风格的随机数，而不是时间戳
@@ -77,10 +99,10 @@ class EMTLogin:
             
             response = self.session.get(captcha_url)
             if response.status_code == 200:
-                with open(save_path, 'wb') as f:
+                with open(self.captcha_path, 'wb') as f:
                     f.write(response.content)
                 
-                print(f"验证码已保存到: {save_path}")
+                print(f"验证码已保存到: {self.captcha_path}")
                 # 尝试显示图片
                 try:
                     img = Image.open(BytesIO(response.content))
@@ -198,7 +220,7 @@ class EMTLogin:
         print("\\n=== SMS验证流程 ===")
         
         # 获取图形验证码
-        rand_num = self.get_captcha("sms_captcha.png")
+        rand_num = self.get_captcha()
         if not rand_num:
             return False
         
@@ -281,14 +303,34 @@ class EMTLogin:
         captcha_code = ""
         rand_number = None
         
-        # 2. 获取验证码（如果需要）
+        # 2. 获取并识别验证码（如果需要），带重试机制
         if need_captcha:
-            rand_number = self.get_captcha()
-            if rand_number is None:
-                print("❌ 获取验证码失败")
-                return False
-            
-            captcha_code = input("请输入验证码: ").strip()
+            rand_number = None
+            captcha_code = ""
+            for i in range(3):  # 最多尝试3次
+                print(f"--- 正在进行第 {i+1}/3 次验证码识别 ---")
+                rand_number = self.get_captcha()
+                if rand_number is None:
+                    print("❌ 获取验证码失败，1秒后重试...")
+                    time.sleep(1)
+                    continue
+                
+                recognized_code = self.recognize_captcha()
+                
+                # 验证识别结果是否为4位数字
+                if len(recognized_code) == 4 and recognized_code.isdigit():
+                    print(f"✅ 识别成功: {recognized_code}")
+                    captcha_code = recognized_code
+                    break  # 识别成功，跳出循环
+                else:
+                    print(f"⚠️ 第 {i+1} 次识别结果 '{recognized_code}' 不符合要求，1秒后重试...")
+                    time.sleep(1)
+
+            # 如果3次自动识别都失败，则转为手动输入
+            if not captcha_code:
+                print("⚠️ 自动识别失败，请手动输入")
+                captcha_code = input("请输入验证码: ").strip()
+
             if not captcha_code:
                 print("❌ 验证码不能为空")
                 return False
@@ -309,7 +351,12 @@ def main():
     print()
     
     # 用户输入
-    account = input("请输入资金账号（12位）: ").strip()
+    account = os.getenv("EM_ACCOUNT_NO")
+    if not account:
+        account = input("请输入资金账号（12位）: ").strip()
+    else:
+        print(f"从环境变量 EM_ACCOUNT_NO 读取到资金账号: {account}")
+        
     password = getpass.getpass("请输入交易密码: ").strip()
     
     # 验证输入
