@@ -2,3 +2,6 @@ venv/
 *.pyc
 __pycache__/
 *.png
+session.json
+*.har
+*.txt

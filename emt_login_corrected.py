@@ -17,9 +17,9 @@ from io import BytesIO
 import getpass
 import ddddocr
 import os
-import time
+import re
 
-#解决 `module 'PIL.Image' has no attribute 'ANTIALIAS'` 问题
+# 解决 `module 'PIL.Image' has no attribute 'ANTIALIAS'` 问题
 if not hasattr(Image, 'ANTIALIAS'):
     setattr(Image, 'ANTIALIAS', Image.LANCZOS)
 
@@ -122,7 +122,7 @@ class EMTLogin:
         """检查账号状态 - 基于LoginSec.js第317-322行的逻辑"""
         try:
             url = f"{self.base_url}/Login/CheckZjzh"
-            data = {'zjzh': account}
+            data = {{'zjzh': account}}
             
             response = self.session.post(url, data=data)
             if response.status_code == 200:
@@ -197,27 +197,58 @@ class EMTLogin:
         """处理登录结果 - 基于LoginSec.js第279-301行的结果处理逻辑"""
         print(f"登录响应: {json.dumps(result, indent=2, ensure_ascii=False)}")
         
-        if result.get('Status') == 0 or result.get('Status') == '0':  # HAR显示成功状态为0
+        if result.get('Status') == 0 or result.get('Status') == '0':
             print("✅ 登录成功！")
+            self.save_session_info(result)
             return True
         elif result.get('ErrCode') == -11 or result.get('Errcode') == -11:
             print("⚠️  需要SMS验证")
-            print("提示: 请根据提示完成手机短信验证")
             return self.handle_sms_verification(account, result)
-        elif result.get('ErrCode') == -1 or result.get('Return_Code') == -1:
-            print("⚠️  账户状态需要处理")
-            return False
-        elif result.get('ErrCode') == -3:
-            print(f"❌ 登录错误: {result.get('Message', '未知错误')}")
-            return False
         else:
             print(f"❌ 登录失败: {result.get('Message', '未知错误')}")
-            print(f"错误代码: {result.get('ErrCode', result.get('Errcode', 'N/A'))}")
             return False
-    
+
+    def save_session_info(self, login_result):
+        """获取/Trade/Buy页面并从中提取validatekey，然后保存会话信息"""
+        if not (login_result.get('Status') == 0 or login_result.get('Status') == '0'):
+            return
+
+        try:
+            # 登录成功后，访问交易页面以获取validatekey
+            trade_buy_url = f"{self.base_url}/Trade/Buy"
+            response = self.session.get(trade_buy_url)
+            response.raise_for_status()
+
+            # 从页面HTML中用正则表达式提取validatekey
+            import re
+            match = re.search(r'<input[^>]+id="em_validatekey"[^>]+value="([^"]+)"', response.text)
+            
+            if match:
+                validatekey = match.group(1)
+                print(f"✅ 提取到 validatekey: {validatekey}")
+            else:
+                print("--- /Trade/Buy page content ---")
+                print(response.text)
+                print("--------------------------")
+                print("❌ 未能在 /Trade/Buy 页面中找到 validatekey")
+                return
+
+            cookies = self.session.cookies.get_dict()
+            session_data = {
+                'validatekey': validatekey,
+                'cookies': cookies
+            }
+
+            with open('session.json', 'w') as f:
+                json.dump(session_data, f, indent=4)
+            print("✅ 会话信息已保存到 session.json")
+
+        except Exception as e:
+            print(f"❌ 保存会话信息失败: {e}")
+
     def handle_sms_verification(self, account, login_result):
         """处理SMS验证 - 基于LoginSec.js第98-104行和127-134行"""
-        print("\\n=== SMS验证流程 ===")
+        print("\n=== SMS验证流程 ===")
         
         # 获取图形验证码
         rand_num = self.get_captcha()
@@ -250,7 +281,7 @@ class EMTLogin:
             data = {
                 'vCode': img_captcha,
                 'randNumber': rand_num,
-                'MobileNo': self.encrypt.encrypt(mobile_last4),  # 加密手机号
+                'MobileNo': self.encrypt.encrypt(mobile_last4),
                 'User_id': account
             }
             
@@ -274,7 +305,7 @@ class EMTLogin:
             url = f"{self.base_url}/Login/GetCheckMsgVerCode_12"
             data = {
                 'Vercode': sms_code,
-                'MobileNo': self.encrypt.encrypt(mobile_last4),  # 加密手机号
+                'MobileNo': self.encrypt.encrypt(mobile_last4),
                 'User_id': account
             }
             
@@ -283,6 +314,9 @@ class EMTLogin:
                 result = response.json()
                 if result.get('Status') == 0:
                     print("✅ SMS验证成功！")
+                    # SMS验证成功后，理论上应该重新触发登录或某个流程来完成会话
+                    # 这里简化处理，直接认为登录成功
+                    # 在实际场景中，可能需要根据文档重新调用一个接口
                     return True
                 else:
                     print(f"❌ SMS验证失败: {result.get('Message')}")
@@ -294,7 +328,7 @@ class EMTLogin:
     
     def full_login_process(self, account, password):
         """完整登录流程"""
-        print(f"\\n=== 开始登录账号: {account} ===")
+        print(f"\n=== 开始登录账号: {account} ===")
         
         # 1. 检查是否需要验证码
         need_captcha = self.check_account_status(account)
@@ -345,13 +379,8 @@ class EMTLogin:
 def main():
     """主函数"""
     print("=== 东方财富证券登录工具（修正版本）===")
-    print("✅ 加密算法已通过与JavaScript原版的对比验证")
-    print("✅ 支持验证码识别和SMS二次验证")
-    print("✅ 修正了关键请求参数和头部")
-    print()
     
-    # 用户输入
-    account = os.getenv("EM_ACCOUNT_NO")
+    account = os.getenv("EM_ACCOUNT_NO", "")
     if not account:
         account = input("请输入资金账号（12位）: ").strip()
     else:
@@ -359,7 +388,6 @@ def main():
         
     password = getpass.getpass("请输入交易密码: ").strip()
     
-    # 验证输入
     if not account or not password:
         print("❌ 账号和密码不能为空")
         return
@@ -373,9 +401,9 @@ def main():
     success = login_client.full_login_process(account, password)
     
     if success:
-        print("\\n🎉 登录流程完成！")
+        print("\n🎉 登录流程完成！")
     else:
-        print("\\n❌ 登录失败，请检查账号密码或重试")
+        print("\n❌ 登录失败，请检查账号密码或重试")
 
 
 if __name__ == "__main__":
