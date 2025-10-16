@@ -71,5 +71,56 @@ def parse_har(har_file_path):
             print("--------------------------\n")
             break
 
+def parse_query_har(har_file_path):
+    """
+    解析 HAR 文件，提取查询操作相关请求信息
+    """
+    with open(har_file_path, 'r', encoding='utf-8') as f:
+        har_data = json.load(f)
+
+    print("--- 开始解析HAR文件，提取查询操作关键信息 ---")
+
+    # 查找东方财富域名下的所有API请求
+    print("\n--- 所有jywg.18.cn域名下的请求 ---")
+    jywg_requests = []
+    for entry in har_data['log']['entries']:
+        request = entry['request']
+        url = request['url']
+        if 'jywg.18.cn' in url and '/Trade/' in url:
+            jywg_requests.append((url, request['method'], request))
+
+    # 按URL分组显示
+    seen_urls = set()
+    for url, method, request in jywg_requests:
+        if url not in seen_urls:
+            seen_urls.add(url)
+            print("URL:", url)
+            print("方法:", method)
+            if 'postData' in request and 'text' in request['postData']:
+                print("请求体:", request['postData']['text'])
+            print("响应状态:", entry['response']['status'])
+            print("--------------------------\n")
+
+    # 查找可能的查询相关请求（更广泛的搜索）
+    print("\n--- 可能的查询相关请求（包含特定关键词）---")
+    query_keywords = [
+        "Query", "Get", "List", "My", "Position", "Order", "Trade", "Deal",
+        "Zjye", "WT", "CJ", "Stock", "Fund", "Account", "Balance", "Asset"
+    ]
+
+    for entry in har_data['log']['entries']:
+        request = entry['request']
+        url = request['url']
+        if 'jywg.18.cn' in url and any(keyword in url for keyword in query_keywords):
+            print("URL:", url)
+            print("方法:", request['method'])
+            if 'postData' in request and 'text' in request['postData']:
+                print("请求体:", request['postData']['text'])
+            print("响应状态:", entry['response']['status'])
+            print("说明: 可能的查询请求")
+            print("--------------------------\n")
+
 if __name__ == "__main__":
-    parse_har('jywg.18.cn_Archive.har')
+    # 只解析查询相关的HAR文件
+    print("=== 解析查询HAR文件 ===")
+    parse_query_har('jywg.18.cn_Archive_2.har')
