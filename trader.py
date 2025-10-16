@@ -37,17 +37,17 @@ class StockTrader:
             print(f"查询股票信息异常: {e}")
             return None
 
-    def get_trade_info(self, stock_code, price, stock_name):
+    def get_trade_info(self, stock_code, price, stock_name, trade_type="B"):
         """获取交易所需信息"""
         url = f"{self.base_url}/Trade/GetAllNeedTradeInfo?validatekey={self.validatekey}"
         data = {
             "stockCode": stock_code,
             "price": price,
-            "tradeType": "B",
+            "tradeType": trade_type,
             "stockName": stock_name,
             "gddm": "",
             "market": "SA",
-            "jylb": "B"
+            "jylb": trade_type
         }
         try:
             response = self.session.post(url, data=data)
@@ -57,23 +57,30 @@ class StockTrader:
             print(f"获取交易所需信息异常: {e}")
             return None
 
-    def get_max_trade_count(self, stock_code, price, stock_name):
-        """获取最大可买数量"""
+    def get_max_trade_count(self, stock_code, price, stock_name, trade_type="B"):
+        """获取最大可交易数量"""
         url = f"{self.base_url}/Com/GetMaxTradeCountByMarketOrGddm?validatekey={self.validatekey}"
+        
+        # 根据交易类型设置jylb参数
+        if trade_type == "B":
+            jylb = "0a"  # 买入
+        else:
+            jylb = "S"   # 卖出
+            
         data = {
             "zqdm": stock_code,
             "wtjg": price,
-            "jylb": "0a",
+            "jylb": jylb,
             "market": "SA",
             "zqmc": stock_name,
             "gddm": ""
         }
         try:
             response = self.session.post(url, data=data)
-            print(f"获取最大可买数量响应: {response.json()}")
+            print(f"获取最大可{trade_type == 'B' and '买' or '卖'}数量响应: {response.json()}")
             return response.json()
         except Exception as e:
-            print(f"获取最大可买数量异常: {e}")
+            print(f"获取最大可{trade_type == 'B' and '买' or '卖'}数量异常: {e}")
             return None
 
     def submit_buy_order(self, stock_code, price, amount, stock_name):
@@ -98,6 +105,61 @@ class StockTrader:
         except Exception as e:
             print(f"提交买入订单异常: {e}")
             return None
+
+    def submit_sell_order(self, stock_code, price, amount, stock_name):
+        """提交卖出订单"""
+        url = f"{self.base_url}/Trade/SubmitTradeV2?validatekey={self.validatekey}"
+        data = {
+            "stockCode": stock_code,
+            "price": price,
+            "amount": amount,
+            "tradeType": "S",
+            "zqmc": stock_name,
+            "market": "SA"
+        }
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Referer': f'{self.base_url}/Trade/Sale',
+        }
+        try:
+            response = self.session.post(url, data=data, headers=headers)
+            print(f"提交卖出订单响应: {response.json()}")
+            return response.json()
+        except Exception as e:
+            print(f"提交卖出订单异常: {e}")
+            return None
+
+    def execute_sell(self, stock_code, price, amount, stock_name):
+        """执行完整的卖出流程"""
+        print(f"\n--- 准备卖出股票 ---")
+        print(f"代码: {stock_code} ({stock_name})")
+        print(f"价格: {price}")
+        print(f"数量: {amount}")
+        
+        # 1. 获取卖出交易信息
+        self.get_trade_info(stock_code, price, stock_name, trade_type="S")
+        
+        # 2. 获取最大可卖数量
+        self.get_max_trade_count(stock_code, price, stock_name, trade_type="S")
+        
+        # 3. 提交卖出订单
+        return self.submit_sell_order(stock_code, price, amount, stock_name)
+
+    def execute_buy(self, stock_code, price, amount, stock_name):
+        """执行完整的买入流程"""
+        print(f"\n--- 准备买入股票 ---")
+        print(f"代码: {stock_code} ({stock_name})")
+        print(f"价格: {price}")
+        print(f"数量: {amount}")
+        
+        # 1. 获取买入交易信息
+        self.get_trade_info(stock_code, price, stock_name, trade_type="B")
+        
+        # 2. 获取最大可买数量
+        self.get_max_trade_count(stock_code, price, stock_name, trade_type="B")
+        
+        # 3. 提交买入订单
+        return self.submit_buy_order(stock_code, price, amount, stock_name)
 
 def main():
     """主函数"""
